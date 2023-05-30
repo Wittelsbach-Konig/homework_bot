@@ -32,12 +32,8 @@ BASE_DIR: str = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE: str = os.path.join(BASE_DIR, 'homework.log')
 LOG_FORMAT = '%(asctime)s [%(levelname)s] %(message)s %(name)s'
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    filename=LOG_FILE,
-    filemode='w',
-    format=LOG_FORMAT,
-)
+N_SECONDS = 5000
+
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.StreamHandler(stream=stdout))
 
@@ -106,16 +102,15 @@ def get_api_answer(timestamp: int) -> dict:
             },
         }
         response = requests.get(**get_params)
-        if response.status_code != http.HTTPStatus.OK:
-            logger.error('Страница недоступна.')
-            raise http.exceptions.HTTPError()
-        return response.json()
-    except requests.exceptions.ConnectionError:
-        logger.error('Ошибка подключения.')
+    except requests.exceptions.ConnectionError as e:
+        raise e('Ошибка подключения.')
     except requests.exceptions.RequestException as e:
-        logger.error(f'Ошибка обработки запроса {e}')
-    except JSONDecodeError:
-        logger.error('JSON не сформирован!')
+        raise e('Ошибка обработки запроса')
+    except JSONDecodeError as e:
+        raise e('JSON не сформирован!')
+    if response.status_code != http.HTTPStatus.OK:
+        raise http.exceptions.HTTPError('Страница недоступна.')
+    return response.json()
 
 
 def check_response(response: dict) -> dict:
@@ -126,11 +121,11 @@ def check_response(response: dict) -> dict:
     Return:
         homeworks (dict): домашняя работа
     """
-    if type(response) is not dict:
+    if not isinstance(response, dict):
         raise TypeError('В функцию "check_response" поступил не словарь')
     if 'homeworks' not in response:
         raise KeyError('Ключ homeworks отсутствует')
-    if type(response['homeworks']) is not list:
+    if not isinstance(response['homeworks'], list):
         raise TypeError('Объект homeworks не является списком')
     if response['homeworks'] == []:
         return {}
@@ -141,23 +136,18 @@ def parse_status(homework: dict) -> str:
     """Извлекает из информации о конкретной домашней работе статус этой работы.
 
     Args:
-        homework (_type_): _description_
+        homework (dict): домашняя работа
 
     Returns:
         str: вердикт
     """
     hw_name = homework.get('homework_name')
     if hw_name is None:
-        logger.error('Ключ status отсутствует в homework')
         raise KeyError('Ключ status отсутствует в homework')
     hw_status = homework.get('status')
     if hw_status is None:
-        logger.error('Ключ homework_name отсутствует в homework')
         raise KeyError('Ключ homework_name отсутствует в homework')
     if hw_status not in HOMEWORK_VERDICTS:
-        logger.error(
-            f'Статус {hw_status} отсутствует в перечне статусов'
-        )
         raise KeyError(
             f'Статус {hw_status} отсутствует в перечне статусов'
         )
@@ -171,8 +161,8 @@ def main():
         logger.critical('Остутствие токенов')
         exit(1)
     bot = Bot(token=TELEGRAM_TOKEN)
-    updater = Updater(token=TELEGRAM_TOKEN)
-    timestamp = int(time.time())
+    timestamp = int(time.time()) - N_SECONDS
+    previous_error = None
     while True:
         try:
             response = get_api_answer(timestamp)
@@ -180,14 +170,25 @@ def main():
             if homework:
                 message = parse_status(homework)
                 send_message(bot, message)
-            updater.start_polling()
+                previous_error = None
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
-            send_message(bot, message)
             logger.error(message)
+            if str(previous_error) != str(error):
+                send_message(bot, message)
+            previous_error = error
+            err_except = error
         time.sleep(RETRY_PERIOD)
-        timestamp = response.get('current_date', timestamp)
+        if not isinstance(err_except, TelegramError):
+            timestamp = response.get('current_date', timestamp)
+        err_except = None
 
 
 if __name__ == '__main__':
+    logging.basicConfig(
+        level=logging.DEBUG,
+        filename=LOG_FILE,
+        filemode='w',
+        format=LOG_FORMAT,
+    )
     main()
