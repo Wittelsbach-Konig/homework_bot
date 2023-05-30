@@ -3,12 +3,11 @@ import logging
 import os
 import time
 from json.decoder import JSONDecodeError
-from sys import stdout, exit
+from sys import exit, stdout
 
 import requests
 from dotenv import load_dotenv
 from telegram import Bot, TelegramError
-from telegram.ext import Updater
 
 load_dotenv()
 
