@@ -116,8 +116,6 @@ def get_api_answer(timestamp: int) -> dict:
         logger.error(f'Ошибка обработки запроса {e}')
     except JSONDecodeError:
         logger.error('JSON не сформирован!')
-    except Exception:
-        logger.error('Непредвиденная ошибка')
 
 
 def check_response(response: dict) -> dict:
