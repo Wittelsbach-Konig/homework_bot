@@ -103,24 +103,25 @@ def get_api_answer(timestamp: int) -> dict:
     Return:
         result (dict): ответ API, преобразованный в словарь
     """
+    get_params: dict = {
+        'url': ENDPOINT,
+        'headers': HEADERS,
+        'params': {
+            'from_date': timestamp
+        },
+    }
     try:
-        get_params: dict = {
-            'url': ENDPOINT,
-            'headers': HEADERS,
-            'params': {
-                'from_date': timestamp
-            },
-        }
         response = requests.get(**get_params)
-        result = response.json()
     except requests.exceptions.ConnectionError as e:
         raise e('Ошибка подключения.')
     except requests.exceptions.RequestException as e:
         raise e('Ошибка обработки запроса')
-    except JSONDecodeError as e:
-        raise e('JSON не сформирован!')
     if response.status_code != http.HTTPStatus.OK:
         raise http.exceptions.HTTPError('Страница недоступна.')
+    try:
+        result = response.json()
+    except JSONDecodeError as e:
+        raise e('JSON не сформирован!')
     return result
 
 
