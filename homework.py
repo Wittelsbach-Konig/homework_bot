@@ -31,6 +31,9 @@ BASE_DIR: str = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE: str = os.path.join(BASE_DIR, 'homework.log')
 LOG_FORMAT = '%(asctime)s [%(levelname)s] %(message)s %(name)s'
 
+# статус отправки сообщения: 0 если успешно, -1 если ошибка
+SEND_STATUS = {'Success': 0, 'Failure': -1}
+
 N_SECONDS = 5000
 
 logger = logging.getLogger(__name__)
@@ -60,12 +63,15 @@ def check_tokens() -> bool:
     return flag
 
 
-def send_message(bot: Bot, message: str) -> None:
+def send_message(bot: Bot, message: str) -> int:
     """Отправляет сообщение в Telegram чат.
 
     Args:
         bot (Bot): экземпляр класса Bot
         message (str): сообщение
+    Return:
+        send_status (int): статус отправки сообщения:
+                           0 если успешно, -1 если ошибка
     """
     try:
         send_message_params: dict = {
@@ -76,14 +82,17 @@ def send_message(bot: Bot, message: str) -> None:
         logger.debug(
             f'Сообщение успешно отправлено: {message}'
         )
+        return SEND_STATUS.get('Success')
     except TelegramError as error:
         logger.error(
             f'Сообщение не отправлено: {error}'
         )
-    except Exception:
+        return SEND_STATUS.get('Failure')
+    except Exception as error:
         logger.error(
-            f'Непредвиденная ошибка {Exception}'
+            f'Непредвиденная ошибка {error}'
         )
+        return SEND_STATUS.get('Failure')
 
 
 def get_api_answer(timestamp: int) -> dict:
@@ -91,6 +100,8 @@ def get_api_answer(timestamp: int) -> dict:
 
     Args:
         timestamp (int): временная метка
+    Return:
+        result (dict): ответ API, преобразованный в словарь
     """
     try:
         get_params: dict = {
@@ -101,6 +112,7 @@ def get_api_answer(timestamp: int) -> dict:
             },
         }
         response = requests.get(**get_params)
+        result = response.json()
     except requests.exceptions.ConnectionError as e:
         raise e('Ошибка подключения.')
     except requests.exceptions.RequestException as e:
@@ -109,7 +121,7 @@ def get_api_answer(timestamp: int) -> dict:
         raise e('JSON не сформирован!')
     if response.status_code != http.HTTPStatus.OK:
         raise http.exceptions.HTTPError('Страница недоступна.')
-    return response.json()
+    return result
 
 
 def check_response(response: dict) -> dict:
@@ -128,7 +140,9 @@ def check_response(response: dict) -> dict:
         raise TypeError('Объект homeworks не является списком')
     if response['homeworks'] == []:
         return {}
-    return response.get('homeworks')[0]
+    homeworks = response.get('homeworks')
+    homework, *_ = homeworks
+    return homework
 
 
 def parse_status(homework: dict) -> str:
@@ -161,26 +175,26 @@ def main():
         exit(1)
     bot = Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time()) - N_SECONDS
-    previous_error = None
+    previous_error = ''
     while True:
         try:
+            current_send_status = SEND_STATUS.get('Failure')
             response = get_api_answer(timestamp)
             homework = check_response(response)
             if homework:
                 message = parse_status(homework)
-                send_message(bot, message)
-                previous_error = None
+                current_send_status = send_message(bot, message)
+            previous_error = None
         except Exception as error:
-            message = f'Сбой в работе программы: {error}'
+            str_error = str(error)
+            message = f'Сбой в работе программы: {str_error}'
             logger.error(message)
-            if str(previous_error) != str(error):
+            if previous_error != str_error:
                 send_message(bot, message)
-            previous_error = error
-            err_except = error
+            previous_error = str_error
         time.sleep(RETRY_PERIOD)
-        if not isinstance(err_except, TelegramError):
+        if current_send_status == SEND_STATUS.get('Success'):
             timestamp = response.get('current_date', timestamp)
-        err_except = None
 
 
 if __name__ == '__main__':
